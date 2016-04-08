@@ -1,0 +1,263 @@
+--- dnschef-master/dnschef.py	2014-11-06 17:44:36.000000000 +0000
++++ dnschef/dnschef.py	2016-04-07 10:35:13.103681130 +0100
+@@ -46,10 +46,60 @@
+ import base64
+ import time
+ 
++# ---- xtr4nge ----
++from configobj import ConfigObj
++from flask import Flask
++import json
++
++CONFIG_FILE = "/usr/share/fruitywifi/www/modules/fruitydns/includes/dnschef-master/fruitydns.conf"
++#config = ConfigObj(CONFIG_FILE)
++
++TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
++
++def DNSsoofStatus():
++    config = ConfigObj(CONFIG_FILE)
++    status = config['SETUP']["dnsspoof"]
++    if status == "on":
++        return True
++    else:
++        return False
++
++def loadNameToDns():
++    config = ConfigObj(CONFIG_FILE)
++    for item, v in config['A'].iteritems():
++        nametodns["A"][str(item)] = str(v)
++        
++    return nametodns
++
++def getRedirect(qname):
++    config = ConfigObj(CONFIG_FILE)
++    
++    # IF *={IP} >> return redirect; else; continue following code
++    try:
++        redirect = config['A']["*"]
++        return redirect
++    except: pass
++    
++    s_domain = qname.split(".")
++    
++    if len(s_domain) > 2:
++        root_domain = s_domain[len(s_domain)-2] + "." + s_domain[len(s_domain)-1]
++        try: redirect = config['A']["*."+root_domain]
++        except: redirect = "NX"
++    elif len(s_domain) == 2:
++        try: redirect = config['A'][qname]
++        except: redirect = "NX"
++    else:
++        redirect = "NX"
++        
++    return redirect
++# ---- xtr4nge/. ----
++
+ # DNSHandler Mixin. The class contains generic functions to parse DNS requests and
+ # calculate an appropriate response based on user parameters.
+ class DNSHandler():
+-           
++    TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
++    
+     def parse(self,data):
+         response = ""
+     
+@@ -59,7 +109,7 @@
+ 
+         except Exception, e:
+             print "[%s] %s: ERROR: %s" % (time.strftime("%H:%M:%S"), self.client_address[0], "invalid DNS request")
+-            if self.server.log: self.server.log.write("[%s] %s: ERROR: %s\n" % (time.strftime("%d/%b/%Y:%H:%M:%S %z"), self.client_address[0], "invalid DNS request"))
++            if self.server.log: self.server.log.write("[%s] %s: ERROR: %s\n" % (time.strftime(self.TIME_FORMAT), self.client_address[0], "invalid DNS request"))
+ 
+         else:        
+             # Only Process DNS Queries
+@@ -79,8 +129,14 @@
+                 fake_records = dict()
+ 
+                 for record in self.server.nametodns:
+-
+-                    fake_records[record] = self.findnametodns(qname,self.server.nametodns[record])
++                    
++                    # ---- xtr4nge ----
++                    redirect  = getRedirect(qname)
++                    if record == "A" and (redirect != "NX") and DNSsoofStatus():
++                        fake_records[record] = redirect
++                    else:
++                        fake_records[record] = self.findnametodns(qname,self.server.nametodns[record])
++                    # ---- xtr4nge/. ----
+                 
+                 # Check if there is a fake record for the current request qtype
+                 if qtype in fake_records and fake_records[qtype]:
+@@ -91,7 +147,7 @@
+                     response = DNSRecord(DNSHeader(id=d.header.id, bitmap=d.header.bitmap, qr=1, aa=1, ra=1), q=d.q)
+ 
+                     print "[%s] %s: cooking the response of type '%s' for %s to %s" % (time.strftime("%H:%M:%S"), self.client_address[0], qtype, qname, fake_record)
+-                    if self.server.log: self.server.log.write( "[%s] %s: cooking the response of type '%s' for %s to %s\n" % (time.strftime("%d/%b/%Y:%H:%M:%S %z"), self.client_address[0], qtype, qname, fake_record) )
++                    if self.server.log: self.server.log.write( "[%s] %s: cooking the response of type '%s' for %s to %s\n" % (time.strftime(self.TIME_FORMAT), self.client_address[0], qtype, qname, fake_record) )
+ 
+                     # IPv6 needs additional work before inclusion:
+                     if qtype == "AAAA":
+@@ -161,7 +217,7 @@
+ 
+                 elif qtype == "*" and not None in fake_records.values():
+                     print "[%s] %s: cooking the response of type '%s' for %s with %s" % (time.strftime("%H:%M:%S"), self.client_address[0], "ANY", qname, "all known fake records.")
+-                    if self.server.log: self.server.log.write( "[%s] %s: cooking the response of type '%s' for %s with %s\n" % (time.strftime("%d/%b/%Y:%H:%M:%S %z"), self.client_address[0], "ANY", qname, "all known fake records.") )
++                    if self.server.log: self.server.log.write( "[%s] %s: cooking the response of type '%s' for %s with %s\n" % (time.strftime(self.TIME_FORMAT), self.client_address[0], "ANY", qname, "all known fake records.") )
+ 
+                     response = DNSRecord(DNSHeader(id=d.header.id, bitmap=d.header.bitmap,qr=1, aa=1, ra=1), q=d.q)
+ 
+@@ -237,7 +293,7 @@
+                 # Proxy the request
+                 else:
+                     print "[%s] %s: proxying the response of type '%s' for %s" % (time.strftime("%H:%M:%S"), self.client_address[0], qtype, qname)
+-                    if self.server.log: self.server.log.write( "[%s] %s: proxying the response of type '%s' for %s\n" % (time.strftime("%d/%b/%Y:%H:%M:%S %z"), self.client_address[0], qtype, qname) )
++                    if self.server.log: self.server.log.write( "[%s] %s: proxying the response of type '%s' for %s\n" % (time.strftime(self.TIME_FORMAT), self.client_address[0], qtype, qname) )
+ 
+                     nameserver_tuple = random.choice(self.server.nameservers).split('#')               
+                     response = self.proxyrequest(data,*nameserver_tuple)
+@@ -377,11 +433,13 @@
+         
+ # Initialize and start the DNS Server        
+ def start_cooking(interface, nametodns, nameservers, tcp=False, ipv6=False, port="53", logfile=None):
++    global TIME_FORMAT
++    
+     try:
+ 
+         if logfile: 
+             log = open(logfile,'a',0)
+-            log.write("[%s] DNSChef is active.\n" % (time.strftime("%d/%b/%Y:%H:%M:%S %z")) )
++            log.write("[%s] DNSChef is active.\n" % (time.strftime(TIME_FORMAT)) )
+         else:
+             log = None
+ 
+@@ -405,19 +463,102 @@
+     except (KeyboardInterrupt, SystemExit):
+ 
+         if log:
+-            log.write("[%s] DNSChef is shutting down.\n" % (time.strftime("%d/%b/%Y:%H:%M:%S %z")) )
++            log.write("[%s] DNSChef is shutting down.\n" % (time.strftime(TIME_FORMAT)) )
+             log.close()
+ 
+         server.shutdown()
+         print "[*] DNSChef is shutting down."
+         sys.exit()
+ 
+-    except IOError:
++    except IOError, e:
++        print e
+         print "[!] Failed to open log file for writing."
+ 
+     except Exception, e:
+         print "[!] Failed to start the server: %s" % e
+-    
++
++
++# ------------------------------------
++# API [xtr4nge]
++# ------------------------------------
++app = Flask(__name__)
++
++@app.route("/dns")
++def getNameToDNS():
++    nametodns = loadNameToDns()
++    return json.dumps(nametodns)
++
++@app.route("/dns/add/<name>/<ip>")
++def addNameToDNS(name, ip):
++    config = ConfigObj(CONFIG_FILE)
++    nametodns = loadNameToDns()
++    try:
++        nametodns["A"][str(name.strip())] = str(ip.strip())
++        config["A"][str(name.strip())] = str(ip.strip())
++        config.write()
++    except Exception as e:
++        print e
++    return json.dumps(str(nametodns))
++
++@app.route("/dns/A")
++def getA():
++    nametodns = loadNameToDns()
++    return json.dumps(nametodns["A"])
++
++@app.route("/dns/del/<name>")
++def delNameToDNS(name):
++    config = ConfigObj(CONFIG_FILE)
++    nametodns = loadNameToDns()
++    try:
++        del nametodns["A"][name]
++        del config["A"][str(name.strip())]
++        config.write()
++    except Exception as e:
++        print e
++    return json.dumps(str(nametodns))
++
++@app.route("/dnsspoof")
++def getSpoof():
++    config = ConfigObj(CONFIG_FILE)
++    out = config["SETUP"]["dnsspoof"]
++    return json.dumps(out)
++
++@app.route("/dnsspoof/<action>")
++def setSpoof(action):
++    config = ConfigObj(CONFIG_FILE)
++    try:
++        config["SETUP"]["dnsspoof"] = str(action)
++        config.write()
++    except Exception as e:
++        print e
++    return json.dumps(action)
++
++'''
++@app.route("/dnsspoof-all")
++def getSpoofAll():
++    config = ConfigObj(CONFIG_FILE)
++    out = config["SETUP"]["dnsspoof_all"]
++    return json.dumps(out)
++
++@app.route("/dnsspoof-all/<action>")
++def setSpoofAll(action):
++    config = ConfigObj(CONFIG_FILE)
++    try:
++        config["SETUP"]["dnsspoof_all"] = str(action)
++        config.write()
++    except Exception as e:
++        print e
++    return json.dumps(action)
++'''
++
++def startFlask():
++    config = ConfigObj(CONFIG_FILE)
++    PORT = int(config['SETUP']["port"])
++    app.run(host='127.0.0.1', port=PORT)
++
++# ------------------------------------
++
++
+ if __name__ == "__main__":
+ 
+     header  = "          _                _          __  \n"
+@@ -427,6 +568,7 @@
+     header += "     | (_| | | | \__ \ (__| | | |  __/ |  \n"
+     header += "      \__,_|_| |_|___/\___|_| |_|\___|_|  \n"
+     header += "                   iphelix@thesprawl.org  \n"
++    header += "             FruityDNS patch by @xtr4nge  \n"
+ 
+     # Parse command line arguments
+     parser = OptionParser(usage = "dnschef.py [options]:\n" + header, description="DNSChef is a highly configurable DNS Proxy for Penetration Testers and Malware Analysts. It is capable of fine configuration of which DNS replies to modify or to simply proxy with real responses. In order to take advantage of the tool you must either manually configure or poison DNS server entry to point to DNSChef. The tool requires root privileges to run on privileged ports." )
+@@ -608,5 +750,15 @@
+     if not options.fakeip and not options.fakeipv6 and not options.fakemail and not options.fakealias and not options.fakens and not options.file:
+         print "[*] No parameters were specified. Running in full proxy mode"    
+ 
++    # ------------------------------------
++    # START API [xtr4nge]
++    # ------------------------------------
++    print "[*] FruityDNS Version 1.0 by @xtr4nge (http://www.fruitywifi.com)"
++    print "[*] Starting FruityDNS [API]"
++    a = threading.Thread(name="API", target=startFlask)
++    a.setDaemon(True)
++    a.start()
++    # ------------------------------------
++    
+     # Launch DNSChef
+     start_cooking(interface=options.interface, nametodns=nametodns, nameservers=nameservers, tcp=options.tcp, ipv6=options.ipv6, port=options.port, logfile=options.logfile)
+\ No newline at end of file
