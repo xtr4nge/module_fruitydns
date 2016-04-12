@@ -2,6 +2,9 @@
 
 echo "installing FruityDNS..."
 
+apt-get -y install python-ipy python-flask python-configobj
+pip install dnslib
+
 wget https://github.com/xtr4nge/dnschef/archive/master.zip -O dnschef-master.zip
 unzip dnschef-master.zip
 
