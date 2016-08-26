@@ -45,7 +45,9 @@ $newdata = base64_encode($newdata);
 
 if ($type == "config") {
 
-    if ($newdata != "") { $newdata = ereg_replace(13,  "", $newdata);
+    if ($newdata != "") {
+		//$newdata = ereg_replace(13,  "", $newdata); // DEPRECATED
+		$newdata = preg_replace("/[\n\r]/",  "", $newdata);
 		$config_file = "$mod_path/includes/dnschef-master/fruitydns.conf";
         
 		$exec = "$bin_echo '$newdata' | base64 --decode > $config_file";
